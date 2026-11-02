@@ -1,0 +1,6 @@
+.env
+.env.*
+.DS_Store
+
+/forum
+web/node_modules/

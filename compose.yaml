@@ -1,0 +1,53 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: forum
+      MYSQL_USER: forum
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql -h127.0.0.1 -uforum forum -e "SELECT 1"']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  forum:
+    build: .
+    ports:
+      - "127.0.0.1:${FORUM_PORT:-8080}:8080"
+    environment:
+      GIN_MODE: release
+      SERVER_ADDR: "0.0.0.0:8080"
+      DB_ADDR: mysql:3306
+      DB_USER: forum
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-30m}
+      JWT_RENEWAL_WINDOW: ${JWT_RENEWAL_WINDOW:-5m}
+      JWT_MAX_LIFETIME: ${JWT_MAX_LIFETIME:-168h}
+      REDIS_ADDR: redis:6379
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+volumes:
+  mysql-data:
+  redis-data:

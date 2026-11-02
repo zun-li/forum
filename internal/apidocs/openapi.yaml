@@ -1,0 +1,993 @@
+openapi: 3.0.3
+info:
+  title: 论坛 API
+  version: v1
+  description: 游客可浏览社区、帖子与留言。调用受保护的接口时，请先通过 POST /login 获取 data.token，再点击 Authorize
+    粘贴该 JWT。若响应带有 X-Renewed-Token，请在 Authorize 中更新凭证。
+servers:
+- {url: "/api/v1"}
+tags:
+- {name: 账户}
+- {name: 社区}
+- {name: 帖子}
+- {name: 留言}
+- {name: 投票}
+- {name: 管理}
+- {name: 服务}
+security:
+- BearerAuth: []
+paths:
+  "/signup":
+    post:
+      tags: [账户]
+      summary: 注册账号
+      operationId: signup
+      security: []
+      description: 用户名会转成小写，admin 为保留名称。注册成功后请使用登录接口获取令牌。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/SignupRequest"}
+        description: 请求体上限为 4 KiB。
+      responses:
+        '201':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/User"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '409': {"$ref": "#/components/responses/UsernameTaken"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/login":
+    post:
+      tags: [账户]
+      summary: 登录并获取会话令牌
+      operationId: login
+      security: []
+      description: 新登录会替换此账号已有的会话。若 must_change_password 为 true，可查询自己的信息、设置初始密码或注销。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/LoginRequest"}
+        description: 请求体上限为 4 KiB。
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/LoginResult"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401':
+          description: 用户名或密码错误
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/logout":
+    post:
+      tags: [账户]
+      summary: 注销当前会话
+      operationId: logout
+      description: 成功后该会话签发过的访问令牌全部失效。
+      responses:
+        '200':
+          description: 已注销
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/me":
+    get:
+      tags: [账户]
+      summary: 查询当前账号
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: 当前账号信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/CurrentUser"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/me/username":
+    put:
+      tags: [账户]
+      summary: 修改登录用户名
+      operationId: changeUsername
+      description: 仅普通用户可修改。保存现有用户名也会成功，变更后当前会话继续有效。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/ChangeUsernameRequest"}
+        description: 请求体上限为 4 KiB。
+      responses:
+        '200':
+          description: 已保存用户名
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data:
+                      type: object
+                      required: [username]
+                      properties:
+                        username: {type: string, example: forum_reader}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403':
+          description: 管理员不能修改用户名，或需先修改初始密码
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '409': {"$ref": "#/components/responses/UsernameTaken"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/me/password":
+    post:
+      tags: [账户]
+      summary: 设置首次登录后的新密码
+      operationId: changeInitialPassword
+      description: 仅适用于 must_change_password 为 true 的会话。成功后请使用新密码重新登录。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/InitialPasswordRequest"}
+        description: 请求体上限为 4 KiB。
+      responses:
+        '200':
+          description: 已设置新密码
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403':
+          description: 当前会话无需修改初始密码
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '409':
+          description: 初始密码已被修改
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+    put:
+      tags: [账户]
+      summary: 修改当前密码
+      operationId: changePassword
+      description: 输入当前密码以验证身份。修改成功后，当前会话继续有效。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/ChangePasswordRequest"}
+        description: 请求体上限为 4 KiB。
+      responses:
+        '200':
+          description: 已修改密码
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401':
+          description: 会话无效、用户不存在或当前密码错误
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/users":
+    get:
+      tags: [账户]
+      summary: 列出最近注册的用户
+      operationId: listUsers
+      security:
+      - BearerAuth: []
+      - {}
+      description: 按用户 ID 降序返回至多 20 个账号。
+      responses:
+        '200':
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data:
+                      type: array
+                      items: {"$ref": "#/components/schemas/User"}
+                      maxItems: 20
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '401': {"$ref": "#/components/responses/InvalidSession"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/communities":
+    get:
+      tags: [社区]
+      summary: 列出社区
+      operationId: listCommunities
+      security:
+      - BearerAuth: []
+      - {}
+      description: 按社区 ID 升序返回名称和编号。
+      responses:
+        '200':
+          description: 社区列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data:
+                      type: array
+                      items: {"$ref": "#/components/schemas/CommunitySummary"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '401': {"$ref": "#/components/responses/InvalidSession"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/communities/{id}":
+    get:
+      tags: [社区]
+      summary: 查看社区详情
+      operationId: getCommunity
+      security:
+      - BearerAuth: []
+      - {}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: 社区的正整数编号。
+        schema: {type: integer, minimum: 1, example: 1}
+      responses:
+        '200':
+          description: 社区详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/Community"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/InvalidSession"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '404': {"$ref": "#/components/responses/CommunityNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/admin/communities":
+    post:
+      tags: [管理]
+      summary: 创建社区
+      operationId: createCommunity
+      description: 需要已完成首次改密的管理员会话。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/CreateCommunityRequest"}
+        description: 请求体上限为 4 KiB。
+      responses:
+        '201':
+          description: 社区已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/Community"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/AdminRequired"}
+        '409':
+          description: 频道名称已存在
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/posts":
+    get:
+      tags: [帖子]
+      operationId: listPosts
+      summary: 读取帖子排行榜
+      security:
+      - BearerAuth: []
+      - {}
+      parameters:
+      - name: order
+        in: query
+        description: 按发布时间（time）或热度（score）降序排列。
+        required: false
+        schema:
+          type: string
+          enum: [time, score]
+          default: time
+      - name: community_id
+        in: query
+        description: 仅列出指定频道。省略或传 0 时读取全站排行榜。
+        required: false
+        schema: {type: integer, minimum: 0}
+      - name: page
+        in: query
+        description: 页码，从 1 开始。
+        required: false
+        schema: {type: integer, minimum: 1, default: 1}
+      - name: size
+        in: query
+        description: 每页的帖子数量。
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 10
+      responses:
+        '200':
+          description: 当前页的帖子列表。
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data:
+                      type: array
+                      items: {"$ref": "#/components/schemas/PostDetail"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/InvalidSession"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+    post:
+      tags: [帖子]
+      operationId: createPost
+      summary: 发布帖子
+      requestBody:
+        required: true
+        description: 请求体上限为 64 KiB。
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/CreatePostRequest"}
+      responses:
+        '201':
+          description: 帖子已发布，返回帖子 ID。
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/CreatedID"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '404': {"$ref": "#/components/responses/CommunityNotFound"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/posts/{id}":
+    parameters:
+    - {"$ref": "#/components/parameters/PostID"}
+    get:
+      tags: [帖子]
+      operationId: getPost
+      summary: 查看帖子详情
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: 帖子详情。
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/PostDetail"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/InvalidSession"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '404': {"$ref": "#/components/responses/PostNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+    delete:
+      tags: [帖子]
+      operationId: deleteOwnPost
+      summary: 删除自己的帖子
+      description: 删除后该帖及其留言不再公开，投票也随之关闭。
+      responses:
+        '200':
+          description: 操作成功。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/AuthorRequired"}
+        '404': {"$ref": "#/components/responses/PostNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/posts/{id}/comments":
+    parameters:
+    - {"$ref": "#/components/parameters/PostID"}
+    get:
+      tags: [留言]
+      operationId: listComments
+      summary: 分批读取帖子留言
+      description: 每页最多 20 条，按留言 ID 从小到大排列。has_more 为 true 时，将本页第一条留言的 ID 作为 before
+        可读取更早的留言。
+      security:
+      - BearerAuth: []
+      - {}
+      parameters:
+      - name: before
+        in: query
+        description: 仅返回 ID 小于该游标的留言。省略或传 0 时读取最近的留言。
+        required: false
+        schema: {type: string, pattern: "^[0-9]+$", example: '1965432101234567890'}
+      responses:
+        '200':
+          description: 本页留言与翻页标记。
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/CommentPage"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/InvalidSession"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '404': {"$ref": "#/components/responses/PostNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+    post:
+      tags: [留言]
+      operationId: createComment
+      summary: 发表留言
+      requestBody:
+        required: true
+        description: 请求体上限为 16 KiB。
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/CreateCommentRequest"}
+      responses:
+        '201':
+          description: 留言已发表，返回留言 ID。
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {"$ref": "#/components/schemas/SuccessResponse"}
+                - type: object
+                  required: [data]
+                  properties:
+                    data: {"$ref": "#/components/schemas/CreatedID"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '404': {"$ref": "#/components/responses/PostNotFound"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/posts/{id}/comments/{comment_id}":
+    parameters:
+    - {"$ref": "#/components/parameters/PostID"}
+    - {"$ref": "#/components/parameters/CommentID"}
+    delete:
+      tags: [留言]
+      operationId: deleteOwnComment
+      summary: 删除自己的留言
+      responses:
+        '200':
+          description: 操作成功。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/AuthorRequired"}
+        '404': {"$ref": "#/components/responses/CommentNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/admin/posts/{id}":
+    parameters:
+    - {"$ref": "#/components/parameters/PostID"}
+    delete:
+      tags: [管理]
+      operationId: adminDeletePost
+      summary: 管理员删除任意帖子
+      responses:
+        '200':
+          description: 操作成功。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/AdminRequired"}
+        '404': {"$ref": "#/components/responses/PostNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/admin/posts/{id}/comments/{comment_id}":
+    parameters:
+    - {"$ref": "#/components/parameters/PostID"}
+    - {"$ref": "#/components/parameters/CommentID"}
+    delete:
+      tags: [管理]
+      operationId: adminDeleteComment
+      summary: 管理员删除指定帖子下的留言
+      responses:
+        '200':
+          description: 操作成功。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/AdminRequired"}
+        '404': {"$ref": "#/components/responses/CommentNotFound"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/votes":
+    post:
+      tags: [投票]
+      operationId: castVote
+      summary: 投票或撤票
+      description: 只能在帖子发表后七天内操作。每人对每篇帖子保留一个投票方向，提交新方向会覆盖原方向。
+      requestBody:
+        required: true
+        description: 请求体上限为 4 KiB。
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/VoteRequest"}
+      responses:
+        '200':
+          description: 操作成功。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/SuccessResponse"}
+          headers:
+            X-Renewed-Token: {"$ref": "#/components/headers/RenewedToken"}
+        '400': {"$ref": "#/components/responses/BadRequest"}
+        '401': {"$ref": "#/components/responses/SessionRequired"}
+        '403': {"$ref": "#/components/responses/PasswordChangeRequired"}
+        '404': {"$ref": "#/components/responses/PostNotFound"}
+        '409':
+          description: 重复提交当前投票方向（1009）。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '413': {"$ref": "#/components/responses/BodyTooLarge"}
+        '415': {"$ref": "#/components/responses/UnsupportedMediaType"}
+        '422':
+          description: 帖子已超过七天投票期限（1010）。
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ErrorResponse"}
+        '500': {"$ref": "#/components/responses/ServerError"}
+  "/healthz":
+    get:
+      tags: [服务]
+      operationId: health
+      summary: 检查 HTTP 服务是否在线
+      servers:
+      - {url: "/"}
+      security: []
+      responses:
+        '200':
+          description: 服务在线。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 填入登录返回的 JWT，Swagger UI 会自动添加 Bearer 前缀。
+  headers:
+    RenewedToken:
+      description: 会话续期时返回的新 JWT。
+      schema: {type: string}
+  parameters:
+    PostID:
+      name: id
+      in: path
+      required: true
+      description: 帖子 ID。
+      schema: {"$ref": "#/components/schemas/SnowflakeID"}
+    CommentID:
+      name: comment_id
+      in: path
+      required: true
+      description: 留言 ID。
+      schema: {"$ref": "#/components/schemas/SnowflakeID"}
+  responses:
+    BadRequest:
+      description: 请求参数或 JSON 对象无效（1001）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    SessionRequired:
+      description: 缺少登录凭证（1006），或会话已失效（1007）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    InvalidSession:
+      description: 随请求提供的凭证无效、已过期或已被其他登录替换（1007）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    PasswordChangeRequired:
+      description: 请先修改初始密码（1012）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    AdminRequired:
+      description: 需要管理员权限（1011）并完成首次改密（1012）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    AuthorRequired:
+      description: 仅作者可删除（1011），并且须已完成首次改密（1012）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    CommunityNotFound:
+      description: 社区不存在（1008）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    PostNotFound:
+      description: 帖子不存在或已删除（1008）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    CommentNotFound:
+      description: 帖子不存在或已删除，或该帖下没有对应的留言（1008）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    UsernameTaken:
+      description: 用户名已被占用或属于保留名称（1002）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    BodyTooLarge:
+      description: 请求体超过此接口的字节数上限（1001）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    UnsupportedMediaType:
+      description: 请求体须使用 application/json（1001）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+    ServerError:
+      description: 服务繁忙（1005）。
+      content:
+        application/json:
+          schema: {"$ref": "#/components/schemas/ErrorResponse"}
+  schemas:
+    SnowflakeID:
+      type: string
+      pattern: "^[1-9][0-9]{0,18}$"
+      description: 十进制 Snowflake ID，使用字符串以保留完整精度。
+      example: '1965432101234567890'
+    SuccessResponse:
+      type: object
+      required: [code, msg]
+      properties:
+        code:
+          type: integer
+          enum: [1000]
+        msg: {type: string, example: success}
+    ErrorResponse:
+      type: object
+      required: [code, msg]
+      properties:
+        code: {type: integer, description: 业务错误码。}
+        msg: {type: string, description: 错误原因。}
+    UsernameInput: {type: string, description: 去掉首尾空白并转成小写后，须为 3–32 个英文字母、数字或下划线。,
+      example: forum_reader}
+    NewPassword:
+      type: string
+      format: password
+      minLength: 6
+      maxLength: 128
+      description: 管理员的新密码须与初始密码不同。
+      example: new-sample-passphrase
+    PasswordConfirmation:
+      type: string
+      format: password
+      minLength: 6
+      maxLength: 128
+      description: 必须与 new_password 一致。
+      example: new-sample-passphrase
+    SignupRequest:
+      type: object
+      required: [username, password, re_password]
+      properties:
+        username: {"$ref": "#/components/schemas/UsernameInput"}
+        password:
+          type: string
+          format: password
+          minLength: 6
+          maxLength: 128
+          description: 密码中的空格会保留。
+          example: sample-passphrase
+        re_password:
+          type: string
+          format: password
+          minLength: 6
+          maxLength: 128
+          description: 必须与 password 一致。
+          example: sample-passphrase
+      additionalProperties: false
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: {"$ref": "#/components/schemas/UsernameInput"}
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+          description: 输入当前登录密码。
+          example: sample-passphrase
+      additionalProperties: false
+    ChangeUsernameRequest:
+      type: object
+      required: [username]
+      properties:
+        username: {"$ref": "#/components/schemas/UsernameInput"}
+      additionalProperties: false
+    InitialPasswordRequest:
+      type: object
+      required: [new_password, re_password]
+      properties:
+        new_password: {"$ref": "#/components/schemas/NewPassword"}
+        re_password: {"$ref": "#/components/schemas/PasswordConfirmation"}
+      additionalProperties: false
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password, re_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+          description: 输入当前登录密码。
+          example: sample-passphrase
+        new_password: {"$ref": "#/components/schemas/NewPassword"}
+        re_password: {"$ref": "#/components/schemas/PasswordConfirmation"}
+      additionalProperties: false
+    User:
+      type: object
+      required: [id, username, created_at]
+      properties:
+        id: {"$ref": "#/components/schemas/SnowflakeID"}
+        username: {type: string, example: forum_reader}
+        created_at: {type: string, format: date-time}
+    CurrentUser:
+      allOf:
+      - {"$ref": "#/components/schemas/User"}
+      - type: object
+        required: [role]
+        properties:
+          role:
+            type: string
+            enum: [user, admin]
+          must_change_password: {type: boolean, description: 需要修改初始密码时返回 true。}
+    LoginResult:
+      type: object
+      required: [user_id, user_name, role, token]
+      properties:
+        user_id: {"$ref": "#/components/schemas/SnowflakeID"}
+        user_name: {type: string, example: forum_reader}
+        role:
+          type: string
+          enum: [user, admin]
+        token: {type: string, description: 访问 API 使用的会话 JWT。}
+        must_change_password: {type: boolean, description: 需要修改初始密码时返回 true。}
+    CommunitySummary:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: integer, minimum: 1, example: 1}
+        name: {type: string, example: 编程与软件工程}
+    Community:
+      allOf:
+      - {"$ref": "#/components/schemas/CommunitySummary"}
+      - type: object
+        required: [introduction, create_time]
+        properties:
+          introduction: {type: string, example: 交流编程和软件工程实践。}
+          create_time: {type: string, format: date-time}
+    CreateCommunityRequest:
+      type: object
+      required: [name, introduction]
+      properties:
+        name: {type: string, description: 去掉首尾空白后的长度为 1–128 个字符。, example: 系统设计}
+        introduction: {type: string, description: 去掉首尾空白后的长度为 1–256 个字符。, example: 讨论系统的设计与实现。}
+      additionalProperties: false
+    CreatePostRequest:
+      type: object
+      required: [community_id, title, content]
+      properties:
+        community_id: {type: integer, minimum: 1, example: 1}
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+          example: 读书交流
+          description: 去除首尾空白后为 1 至 300 个字符。
+        content:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          example: 大家最近在读哪本书？
+          description: 正文须包含非空白字符。
+      additionalProperties: false
+    PostDetail:
+      type: object
+      required: [id, author_id, author_name, community_id, community_name, community,
+        status, title, content, create_time, vote_num, comment_count]
+      properties:
+        id: {"$ref": "#/components/schemas/SnowflakeID"}
+        author_id: {"$ref": "#/components/schemas/SnowflakeID"}
+        author_name: {type: string}
+        community_id: {type: integer, minimum: 1, example: 1}
+        community_name: {type: string}
+        community: {"$ref": "#/components/schemas/Community"}
+        status: {type: integer, example: 1, description: 正常发布的帖子为 1。}
+        title: {type: string}
+        content: {type: string}
+        create_time: {type: string, format: date-time}
+        vote_num: {type: integer, minimum: 0, description: 当前赞成票数。}
+        comment_count: {type: integer, minimum: 0, description: 当前留言数。}
+    CreateCommentRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          example: 推荐《程序设计实践》。
+          description: 去除首尾空白后为 1 至 1000 个字符。
+      additionalProperties: false
+    Comment:
+      type: object
+      required: [id, author_id, author_name, content, create_time]
+      properties:
+        id: {"$ref": "#/components/schemas/SnowflakeID"}
+        author_id: {"$ref": "#/components/schemas/SnowflakeID"}
+        author_name: {type: string}
+        content: {type: string}
+        create_time: {type: string, format: date-time}
+    CommentPage:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items: {"$ref": "#/components/schemas/Comment"}
+          maxItems: 20
+          description: 本页留言按 ID 从小到大排列。
+        has_more: {type: boolean, description: 是否还有更早的留言。}
+    VoteRequest:
+      type: object
+      required: [post_id, direction]
+      properties:
+        post_id:
+          oneOf:
+          - {"$ref": "#/components/schemas/SnowflakeID"}
+          - {type: integer, minimum: 1}
+          description: 推荐传十进制字符串，以完整保留帖子 ID 的精度。
+          example: '1965432101234567890'
+        direction:
+          oneOf:
+          - type: integer
+            enum: [-1, 0, 1]
+          - type: string
+            enum: ["-1", '0', '1']
+          description: 1 为赞成，-1 为反对，0 为撤票。
+          example: 1
+      additionalProperties: false
+    CreatedID:
+      type: object
+      required: [id]
+      properties:
+        id: {"$ref": "#/components/schemas/SnowflakeID"}
